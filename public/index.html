@@ -579,24 +579,32 @@
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toastContainer"></div>
 
-    <script>
-    // PAKSA semua fetch membawa cookie login
-        // 1. TRIK AJAIB + AUTO BERSIHKAN DATA LAMA
+      <script>
+    // 1. FETCH GLOBAL YANG SUDAH DITAMBAH TOKEN OTOMATIS
     const originalFetch = window.fetch;
     window.fetch = async (url, options = {}) => {
       options.credentials = 'include';
-      const res = await originalFetch(url, options);
-      
-      // Kalau server bilang "Belum login" (401), hapus sisa data lama & lempar ke login
-      if (res.status === 401) {
-        localStorage.removeItem('isLoggedIn');
-        window.location.href = '/login.html';
+      // Ambil token dari localStorage, kalau ada, taruh di header
+      const token = localStorage.getItem('token');
+      if (token) {
+        if (!options.headers) options.headers = {};
+        options.headers['Authorization'] = 'Bearer ' + token;
       }
       
+      const res = await originalFetch(url, options);
+      
+      // Kalau token expired atau salah, lempar ke login
+      if (res.status === 401) {
+        localStorage.removeItem('isLoggedIn');
+        localStorage.removeItem('token');
+        window.location.href = '/login.html';
+      }
       return res;
     };
 
-    if (!localStorage.getItem('isLoggedIn')) {
+    // 2. CEK LOGIN AWAL
+    if (!localStorage.getItem('isLoggedIn') || !localStorage.getItem('token')) {
+      window.location.href = '/login.html';
     }
 
     const API = '';
@@ -617,7 +625,6 @@
       setTimeout(() => toast.remove(), 3000);
     };
 
-    // --- NAVIGATION ---
     function navigate(sectionId) {
       document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
       event.currentTarget.classList.add('active');
@@ -632,13 +639,11 @@
     }
 
     function logout() {
-      fetch("/logout").finally(() => {
-        localStorage.removeItem('isLoggedIn');
-        window.location.href = '/login.html';
-      });
+      localStorage.removeItem('isLoggedIn');
+      localStorage.removeItem('token');
+      window.location.href = '/login.html';
     }
 
-    // --- PRODUCTS LOGIC (PAKE FETCH) ---
     async function fetchProducts() {
       const res = await fetch(`${API}/api/produk`);
       products = await res.json();
@@ -649,20 +654,9 @@
       const tbody = document.querySelector('#tableProducts tbody');
       tbody.innerHTML = '';
       if (products.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center">Tidak ada data</td></tr>'; return; }
-      
       products.forEach(p => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td><strong>${p.nama}</strong><br><small style="color:#888">${p.varian || '-'}</small></td>
-          <td>${p.kategori || '-'}</td>
-          <td>${formatRupiah(p.harga)}</td>
-          <td>${p.stok}</td>
-          <td>
-            <div class="action-buttons">
-              <button class="btn btn-sm btn-outline" onclick="editProduct('${p._id}')"><i class="ph ph-pencil"></i></button>
-              <button class="btn btn-sm btn-danger" onclick="deleteProduct('${p._id}')"><i class="ph ph-trash"></i></button>
-            </div>
-          </td>`;
+        tr.innerHTML = `<td><strong>${p.nama}</strong><br><small style="color:#888">${p.varian || '-'}</small></td><td>${p.kategori || '-'}</td><td>${formatRupiah(p.harga)}</td><td>${p.stok}</td><td><div class="action-buttons"><button class="btn btn-sm btn-outline" onclick="editProduct('${p._id}')"><i class="ph ph-pencil"></i></button><button class="btn btn-sm btn-danger" onclick="deleteProduct('${p._id}')"><i class="ph ph-trash"></i></button></div></td>`;
         tbody.appendChild(tr);
       });
     }
@@ -677,47 +671,19 @@
       }
     }
 
-        async function saveProduct(e) {
+    async function saveProduct(e) {
       e.preventDefault();
       const id = document.getElementById('prodId').value;
-      const data = {
-        nama: document.getElementById('prodName').value,
-        kategori: document.getElementById('prodCategory').value,
-        harga: parseInt(document.getElementById('prodPrice').value),
-        stok: parseInt(document.getElementById('prodStock').value),
-        varian: document.getElementById('prodVariant').value
-      };
-
+      const data = { nama: document.getElementById('prodName').value, kategori: document.getElementById('prodCategory').value, harga: parseInt(document.getElementById('prodPrice').value), stok: parseInt(document.getElementById('prodStock').value), varian: document.getElementById('prodVariant').value };
       try {
         let res;
-        if (id) {
-          res = await fetch(`${API}/api/produk/${id}`, { 
-            method: 'PUT', 
-            headers: {'Content-Type':'application/json'}, 
-            body: JSON.stringify(data) 
-          });
-        } else {
-          res = await fetch(`${API}/api/produk`, { 
-            method: 'POST', 
-            headers: {'Content-Type':'application/json'}, 
-            body: JSON.stringify(data) 
-          });
-        }
-
-        // Jika server mengembalikan error, tampilkan pesan errornya
-        if (!res.ok) {
-          const errorData = await res.json();
-          throw new Error(errorData.message || "Gagal menyimpan");
-        }
-
+        if (id) { res = await fetch(`${API}/api/produk/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) }); }
+        else { res = await fetch(`${API}/api/produk`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) }); }
+        if (!res.ok) { const errorData = await res.json(); throw new Error(errorData.message || "Gagal menyimpan"); }
         showToast('Produk berhasil disimpan!');
         closeModal('modalProduct');
         fetchProducts();
-      } catch (error) {
-        // Tampilkan error asli di layar (ini yang penting!)
-        showToast('ERROR: ' + error.message, 'error');
-        console.error(error);
-      }
+      } catch (error) { showToast('ERROR: ' + error.message, 'error'); }
     }
 
     async function editProduct(id) {
@@ -739,7 +705,6 @@
       fetchProducts();
     }
 
-    // --- CUSTOMERS LOGIC (PAKE FETCH) ---
     async function fetchCustomers() {
       const res = await fetch(`${API}/api/pelanggan`);
       customers = await res.json();
@@ -751,22 +716,14 @@
       tbody.innerHTML = '';
       customers.forEach(c => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${c.nama}</td>
-          <td>${c.alamat || '-'}</td>
-          <td>${c.no_hp || '-'}</td>
-          <td><button class="btn btn-sm btn-danger" onclick="deleteCustomer('${c._id}')"><i class="ph ph-trash"></i></button></td>`;
+        tr.innerHTML = `<td>${c.nama}</td><td>${c.alamat || '-'}</td><td>${c.no_hp || '-'}</td><td><button class="btn btn-sm btn-danger" onclick="deleteCustomer('${c._id}')"><i class="ph ph-trash"></i></button></td>`;
         tbody.appendChild(tr);
       });
     }
 
     async function saveCustomer(e) {
       e.preventDefault();
-      const data = {
-        nama: document.getElementById('custName').value,
-        alamat: document.getElementById('custAddress').value,
-        no_hp: document.getElementById('custPhone').value
-      };
+      const data = { nama: document.getElementById('custName').value, alamat: document.getElementById('custAddress').value, no_hp: document.getElementById('custPhone').value };
       await fetch(`${API}/api/pelanggan`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
       closeModal('modalCustomer');
       fetchCustomers();
@@ -780,14 +737,12 @@
       fetchCustomers();
     }
 
-    // --- POS LOGIC ---
     async function initPOS() {
-      await fetchCustomers(); // Ambil data pelanggan terbaru
+      await fetchCustomers();
       const select = document.getElementById('posCustomerSelect');
       select.innerHTML = '<option value="Umum">Pelanggan Umum</option>';
       customers.forEach(c => { select.innerHTML += `<option value="${c.nama}">${c.nama}</option>`; });
-      
-      await fetchProducts(); // Ambil produk terbaru
+      await fetchProducts();
       renderPosProducts();
       renderCart();
       togglePaymentInput();
@@ -801,10 +756,7 @@
         const div = document.createElement('div');
         div.className = 'product-card';
         div.onclick = () => addToCart(p._id);
-        div.innerHTML = `
-          <div style="font-weight:600; margin-bottom:5px;">${p.nama}</div>
-          <div style="font-size:12px; color:#888;">Stok: ${p.stok}</div>
-          <div class="product-price">${formatRupiah(p.harga)}</div>`;
+        div.innerHTML = `<div style="font-weight:600; margin-bottom:5px;">${p.nama}</div><div style="font-size:12px; color:#888;">Stok: ${p.stok}</div><div class="product-price">${formatRupiah(p.harga)}</div>`;
         grid.appendChild(div);
       });
     }
@@ -813,12 +765,8 @@
       const prod = products.find(p => p._id === prodId);
       if (prod.stok <= 0) return showToast('Stok habis!', 'error');
       const existing = cart.find(c => c._id === prodId);
-      if (existing) {
-        if(existing.qty < prod.stok) existing.qty++;
-        else return showToast('Stok tidak mencukupi', 'error');
-      } else {
-        cart.push({ ...prod, qty: 1 });
-      }
+      if (existing) { if(existing.qty < prod.stok) existing.qty++; else return showToast('Stok tidak mencukupi', 'error'); }
+      else { cart.push({ ...prod, qty: 1 }); }
       renderCart();
       calculateChange();
     }
@@ -832,16 +780,7 @@
         count += item.qty;
         const div = document.createElement('div');
         div.className = 'cart-item';
-        div.innerHTML = `
-          <div>
-            <div style="font-weight:500; font-size:14px;">${item.nama}</div>
-            <div style="font-size:12px; color:#888;">${formatRupiah(item.harga)} x ${item.qty}</div>
-          </div>
-          <div class="flex-row" style="align-items:center;">
-            <button class="btn btn-sm btn-outline" onclick="changeQty(${index}, -1)">-</button>
-            <span style="font-size:14px; width:20px; text-align:center;">${item.qty}</span>
-            <button class="btn btn-sm btn-outline" onclick="changeQty(${index}, 1)">+</button>
-          </div>`;
+        div.innerHTML = `<div><div style="font-weight:500; font-size:14px;">${item.nama}</div><div style="font-size:12px; color:#888;">${formatRupiah(item.harga)} x ${item.qty}</div></div><div class="flex-row" style="align-items:center;"><button class="btn btn-sm btn-outline" onclick="changeQty(${index}, -1)">-</button><span style="font-size:14px; width:20px; text-align:center;">${item.qty}</span><button class="btn btn-sm btn-outline" onclick="changeQty(${index}, 1)">+</button></div>`;
         container.appendChild(div);
       });
       if(cart.length === 0) container.innerHTML = '<p style="text-align: center; color: #b2bec3; margin-top: 20px;">Keranjang kosong</p>';
@@ -859,19 +798,10 @@
       calculateChange();
     }
 
-      function togglePaymentInput() {
+    function togglePaymentInput() {
       const method = document.getElementById('paymentMethod').value;
-      const cashGroup = document.getElementById('cashPaymentGroup');
-      const changeDisplay = document.getElementById('changeDisplay');
-      
-      // QRIS dan Card tidak butuh input uang diterima & kembalian
-      if (method === 'Card') {
-        cashGroup.style.display = 'none';
-        changeDisplay.style.display = 'none';
-      } else {
-        cashGroup.style.display = 'block';
-        changeDisplay.style.display = 'flex';
-      }
+      document.getElementById('cashPaymentGroup').style.display = method === 'Card' ? 'none' : 'block';
+      document.getElementById('changeDisplay').style.display = method === 'Card' ? 'none' : 'flex';
       calculateChange();
     }
 
@@ -881,9 +811,8 @@
       document.getElementById('changeAmount').innerText = formatRupiah(received - total > 0 ? received - total : 0);
     }
 
-        async function processCheckout() {
+    async function processCheckout() {
       if (cart.length === 0) return showToast('Keranjang kosong!', 'error');
-      
       const customerName = document.getElementById('posCustomerSelect').value;
       const total = cart.reduce((sum, item) => sum + (item.harga * item.qty), 0);
       const paymentMethod = document.getElementById('paymentMethod').value;
@@ -896,83 +825,32 @@
       }
 
       try {
-        // 1. Simpan Header Transaksi
-        const trxRes = await fetch(`${API}/api/transaksi`, {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({
-            pelangganNama: customerName, // SUDAH DIPERBAIKI (dari 'pelanggan' jadi 'pelangganNama')
-            total: total,
-            metodePembayaran: paymentMethod,
-            bayar: cashReceived,
-            kembalian: change
-          })
-        });
-        
-        if (!trxRes.ok) {
-          const err = await trxRes.json();
-          throw new Error(err.message || "Gagal simpan transaksi");
-        }
-        
+        const trxRes = await fetch(`${API}/api/transaksi`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ pelangganNama: customerName, total: total, metodePembayaran: paymentMethod, bayar: cashReceived, kembalian: change }) });
+        if (!trxRes.ok) { const err = await trxRes.json(); throw new Error(err.message || "Gagal simpan transaksi"); }
         const trxData = await trxRes.json();
 
-        // 2. Simpan Detail Transaksi & Kurangi Stok
         for (const item of cart) {
-          await fetch(`${API}/api/detail`, {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({
-              id_transaksi: trxData._id,
-              nama_produk: item.nama,
-              harga: item.harga,
-              qty: item.qty,
-              subtotal: item.harga * item.qty
-            })
-          });
-
-          await fetch(`${API}/api/produk/${item._id}`, {
-            method: 'PUT',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ stok: item.stok - item.qty })
-          });
+          await fetch(`${API}/api/detail`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id_transaksi: trxData._id, nama_produk: item.nama, harga: item.harga, qty: item.qty, subtotal: item.harga * item.qty }) });
+          await fetch(`${API}/api/produk/${item._id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ stok: item.stok - item.qty }) });
         }
 
-        // Tampilkan struk
-        showReceipt({
-          _id: trxData._id,
-          tanggal: new Date().toLocaleString('id-ID'),
-          pelanggan: customerName,
-          items: [...cart],
-          total: total,
-          metodePembayaran: paymentMethod,
-          uangDiterima: cashReceived,
-          kembalian: change
-        });
-
+        showReceipt({ _id: trxData._id, tanggal: new Date().toLocaleString('id-ID'), pelanggan: customerName, items: [...cart], total: total, metodePembayaran: paymentMethod, uangDiterima: cashReceived, kembalian: change });
         cart = [];
         document.getElementById('cashReceived').value = '';
         renderCart();
         fetchProducts();
         showToast('Transaksi Berhasil!');
         togglePaymentInput();
-
-      } catch (error) {
-        // Jika ada error, akan muncul pesan ini:
-        showToast('ERROR: ' + error.message, 'error');
-        console.error(error);
-      }
+      } catch (error) { showToast('ERROR: ' + error.message, 'error'); }
     }
 
-    // --- RECEIPT & HISTORY ---
     function showReceipt(trx) {
       document.getElementById('receiptDate').innerText = trx.tanggal;
       let html = `<p>Pelanggan: ${trx.pelanggan}</p><hr style="border:1px dashed #ccc">`;
-      trx.items.forEach(item => {
-        html += `<div style="display:flex; justify-content:space-between;"><span>${item.nama} x${item.qty}</span><span>${formatRupiah(item.harga * item.qty)}</span></div>`;
-      });
+      trx.items.forEach(item => { html += `<div style="display:flex; justify-content:space-between;"><span>${item.nama} x${item.qty}</span><span>${formatRupiah(item.harga * item.qty)}</span></div>`; });
       html += `<hr style="border:1px dashed #ccc; margin: 10px 0;">`;
       html += `<p style="margin:0;">Metode: <strong>${trx.metodePembayaran || 'Cash'}</strong></p>`;
-                 if (trx.metodePembayaran === 'Cash') {
+      if (trx.metodePembayaran === 'Cash') {
         const uangDiterima = trx.uangDiterima || trx.bayar || 0;
         const kembalian = trx.kembalian || 0;
         html += `<div style="display:flex; justify-content:space-between; margin-top:5px;"><span>Uang Diterima</span><span>${formatRupiah(uangDiterima)}</span></div>`;
@@ -983,65 +861,43 @@
       openModal('modalReceipt');
     }
 
-       async function fetchTransactions() {
+    async function fetchTransactions() {
       const res = await fetch(`${API}/api/transaksi`);
       const trxs = await res.json();
-      
       const tbody = document.querySelector('#tableTransactions tbody');
       tbody.innerHTML = '';
       for (const t of trxs) {
         const detRes = await fetch(`${API}/api/detail`);
         const allDetails = await detRes.json();
         const details = allDetails.filter(d => d.id_transaksi === t._id);
-
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td><span style="font-family:monospace; background:#eee; padding:2px 4px; border-radius:4px;">${t._id.toString().slice(-6)}</span></td>
-          <td>${new Date(t.tanggal).toLocaleString('id-ID')}</td>
-          <td>${t.pelangganNama || t.pelanggan || 'Umum'}</td>
-          <td><span style="background:#f0f0f0; padding:4px 8px; border-radius:4px; font-size:12px;">${t.metodePembayaran}</span></td>
-          <td style="font-weight:600; color:var(--primary);">${formatRupiah(t.total)}</td>
-          <td>
-            <button class="btn btn-sm btn-outline" onclick='showReceipt(${JSON.stringify({...t, pelanggan: t.pelangganNama, items: details})})'><i class="ph ph-eye"></i></button>
-            <button class="btn btn-sm btn-danger" onclick="deleteTransaction('${t._id}')"><i class="ph ph-trash"></i></button>
-          </td>`;
+        tr.innerHTML = `<td><span style="font-family:monospace; background:#eee; padding:2px 4px; border-radius:4px;">${t._id.toString().slice(-6)}</span></td><td>${new Date(t.tanggal).toLocaleString('id-ID')}</td><td>${t.pelangganNama || t.pelanggan || 'Umum'}</td><td><span style="background:#f0f0f0; padding:4px 8px; border-radius:4px; font-size:12px;">${t.metodePembayaran}</span></td><td style="font-weight:600; color:var(--primary);">${formatRupiah(t.total)}</td><td><button class="btn btn-sm btn-outline" onclick='showReceipt(${JSON.stringify({...t, pelanggan: t.pelangganNama, items: details})})'><i class="ph ph-eye"></i></button><button class="btn btn-sm btn-danger" onclick="deleteTransaction('${t._id}')"><i class="ph ph-trash"></i></button></td>`;
         tbody.appendChild(tr);
       }
     }
 
     async function deleteTransaction(id) {
       if(!confirm('Hapus riwayat transaksi ini?')) return;
-      await fetch(`${API}/api/detail/byTransaksi/${id}`, { method: 'DELETE' }); // Hapus detail dulu
-      await fetch(`${API}/api/transaksi/${id}`, { method: 'DELETE' }); // Lalu header
+      await fetch(`${API}/api/detail/byTransaksi/${id}`, { method: 'DELETE' });
+      await fetch(`${API}/api/transaksi/${id}`, { method: 'DELETE' });
       fetchTransactions();
     }
 
-          async function updateDashboard() {
+    async function updateDashboard() {
       try {
-        // 1. Pastikan data produk & pelanggan sudah ada di memori
         if (products.length === 0) await fetchProducts();
         if (customers.length === 0) await fetchCustomers();
-
-        // 2. Ambil semua data transaksi untuk dihitung totalnya
         const res = await fetch(`${API}/api/transaksi`);
         const trxs = await res.json();
-        
-        // 3. Hitung total penjualan pakai JavaScript
         const totalSales = trxs.reduce((sum, t) => sum + (t.total || 0), 0);
-
-        // 4. Tampilkan di Dashboard
         document.getElementById('stat-sales').innerText = formatRupiah(totalSales);
         document.getElementById('stat-products').innerText = products.length;
         document.getElementById('stat-customers').innerText = customers.length;
-      } catch (error) {
-        console.error("Gagal load dashboard:", error);
-      }
+      } catch (error) { console.error("Gagal load dashboard:", error); }
     }
 
-    // Initialize
     fetchProducts();
     fetchCustomers();
-
   </script>
 </body>
 </html>
