@@ -17,7 +17,7 @@ app.use(session({
 }));
 
 // KONEKSI MONGODB (TAMBAHKAN INI)
-mongoose.connect("mongodb://127.0.0.1:27017/penjualan_nasi_uduk")
+mongoose.connect(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/penjualan_nasi_uduk")
   .then(() => console.log("✅ MongoDB Terhubung ke penjualan_nasi_uduk"))
   .catch(err => console.log("❌ Gagal konek MongoDB:", err));
 
