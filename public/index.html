@@ -579,9 +579,15 @@
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <script>
-        if (!localStorage.getItem('isLoggedIn')) {
-      window.location.href = '/login.html';
+    <script>
+    // PAKSA semua fetch membawa cookie login
+    const originalFetch = window.fetch;
+    window.fetch = (url, options = {}) => {
+      options.credentials = 'include';
+      return originalFetch(url, options);
+    };
+
+    if (!localStorage.getItem('isLoggedIn')) {
     }
 
     const API = '';
