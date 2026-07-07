@@ -15,7 +15,10 @@ app.use(session({
   secret: "rahasia_nasi_uduk",
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false }
+  cookie: { 
+    secure: 'auto', // Otomatis true jika pakai HTTPS (seperti di Railway)
+    sameSite: 'lax'
+  }
 }));
 
 // KONEKSI MONGODB (TAMBAHKAN INI)
