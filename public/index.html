@@ -581,10 +581,19 @@
 
     <script>
     // PAKSA semua fetch membawa cookie login
+        // 1. TRIK AJAIB + AUTO BERSIHKAN DATA LAMA
     const originalFetch = window.fetch;
-    window.fetch = (url, options = {}) => {
+    window.fetch = async (url, options = {}) => {
       options.credentials = 'include';
-      return originalFetch(url, options);
+      const res = await originalFetch(url, options);
+      
+      // Kalau server bilang "Belum login" (401), hapus sisa data lama & lempar ke login
+      if (res.status === 401) {
+        localStorage.removeItem('isLoggedIn');
+        window.location.href = '/login.html';
+      }
+      
+      return res;
     };
 
     if (!localStorage.getItem('isLoggedIn')) {
